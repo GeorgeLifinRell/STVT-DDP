@@ -1,0 +1,4 @@
+.venv
+
+STVT/STVT/__pycache__
+*.pyc
