@@ -15,7 +15,7 @@ def eval_metrics(y_pred, y_true):
     return [precision, recall, fscore]
 
 def select_keyshots(predicted_list, video_number_list,image_name_list,target_list,args):
-    data_path = './STVT/datasets/datasets/'+str(args.dataset)+".h5"
+    data_path = '/home/user0123/STVT/STVT/STVT/datasets/datasets/'+str(args.dataset)+".h5"
     data_file = h5py.File(data_path)
 
     predicted_single_video = []
@@ -55,13 +55,21 @@ def select_keyshots(predicted_list, video_number_list,image_name_list,target_lis
         vidlen = int(cps[-1][1]) + 1
         weight = video['n_frame_per_seg'][:]
         fea_sequencelen = (len(video['feature'][:])//args.sequence)*args.sequence
-        for ckeck_n in range(len(video_single_list_sort)):
+        pred_score = None
+        up_rate = 1
+        
+        # Make sure we're using i (current video index) and check if it's in range
+        if i < len(predicted_single_video_list):
             dif = True_all_video_len-len(predicted_list)
-            if len(predicted_single_video_list[ckeck_n]) == fea_sequencelen or len(predicted_single_video_list[ckeck_n]) == fea_sequencelen-dif:
-                pred_score = np.array(predicted_single_video_list[ckeck_n])
+            if len(predicted_single_video_list[i]) == fea_sequencelen or len(predicted_single_video_list[i]) == fea_sequencelen-dif:
+                pred_score = np.array(predicted_single_video_list[i])
                 up_rate = vidlen//len(pred_score)
                 # print(up_rate)
-                break
+        else:
+            # Handle the case where we don't have predictions for this video
+            print(f"Warning: No predictions found for video index {i}")
+            continue
+
         #pred
         pred_score = upsample(pred_score, up_rate, vidlen)
         pred_value = np.array([pred_score[cp[0]:cp[1]].mean() for cp in cps])

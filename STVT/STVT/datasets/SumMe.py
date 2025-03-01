@@ -1,9 +1,10 @@
 import torch
 import h5py
 from torch.utils.data import Dataset, DataLoader
+from torch.utils.data.distributed import DistributedSampler
 import numpy as np
 
-def SumMe(args, distributed=False):
+def SumMe(args, distributed=True):
     class SumMeDataset(Dataset):
         global In_target
         In_target = 0
@@ -72,13 +73,27 @@ def SumMe(args, distributed=False):
     test_arr = list(map(int, args.test_dataset.split(',')))
     train_arr = [i for i in all_arr if i not in test_arr]
 
-    file_dir = './STVT/datasets/datasets/SumMe.h5'
+    # file_dir = './STVT/datasets/datasets/SumMe.h5'
+    file_dir = '/home/user0123/STVT/STVT/STVT/datasets/datasets/SumMe.h5'
 
     video_amount = train_arr
     train_data = SumMeDataset(file_dir=file_dir, video_amount=video_amount, F_In_target=True)
-    train_loader = DataLoader(dataset=train_data, batch_size=args.batch_size, shuffle=True, drop_last=True)
+    train_sampler = DistributedSampler(
+        train_data, num_replicas=args.world_size, rank=args.rank, shuffle=False, drop_last=False
+    )
+    train_loader = DataLoader(
+        dataset=train_data, batch_size=args.batch_size, 
+        shuffle=False, drop_last=True, sampler=train_sampler,
+        pin_memory=False, num_workers=0
+    )
     video_amount = test_arr
     test_data = SumMeDataset(file_dir=file_dir, video_amount=video_amount, F_In_target=False)
-    test_loader = DataLoader(dataset=test_data, batch_size=args.val_batch_size, shuffle=False, drop_last=True)
+    test_sampler = DistributedSampler(
+        test_data, num_replicas=args.world_size, rank=args.rank, shuffle=False, drop_last=False
+    )
+    test_loader = DataLoader(
+        dataset=test_data, batch_size=args.val_batch_size, shuffle=False, drop_last=False, sampler=test_sampler,
+        pin_memory=False, num_workers=0
+    )
 
     return train_loader, test_loader, In_target

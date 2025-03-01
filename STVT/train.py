@@ -1,11 +1,13 @@
 import argparse
 import os
+import logging
 from tqdm import tqdm
 import time
 import datetime
 import torch
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
+import torch.multiprocessing as mp
 import tensorboardX
 import numpy as np
 from STVT.metrics import Metric
@@ -22,6 +24,7 @@ from STVT.utils import (
     resume_model,
 )
 
+from utils_ddp import setup, cleanup
 
 pd_epoch = []
 pd_batch_size = []
@@ -123,10 +126,13 @@ def parse_args():
     parser.add_argument(
         '--gpu_id', default='0', type=str, help='id(s) for CUDA_VISIBLE_DEVICES'
     )
+    parser.add_argument(
+        '--world_size', default=1, type=int, help='number of distributed processes'
+    )
 
     args = parser.parse_args()
 
-    os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_id
+    os.environ['CUDA_VISIBLE_DEVICES'] = "0,1,2"
 
     return args
 
@@ -168,11 +174,12 @@ def val(model, val_loader, epoch, args):
                     target_list.append(target.tolist())
                 t.update(1)
                 predicted_list = torch.Tensor(predicted_list).permute(1,0)
-                predicted_list = torch.Tensor(predicted_list).reshape(args.val_batch_size*args.sequence)
+                actual_batch_size = data.size(0)
+                predicted_list = torch.Tensor(predicted_list).reshape(actual_batch_size*args.sequence)
                 target_list = torch.Tensor(target_list).permute(1, 0)
-                target_list = torch.Tensor(target_list).reshape(args.val_batch_size*args.sequence)
-                video_number = video_number.reshape(args.val_batch_size*args.sequence)
-                image_number = image_number.reshape(args.val_batch_size*args.sequence)
+                target_list = torch.Tensor(target_list).reshape(actual_batch_size*args.sequence)
+                video_number = video_number.reshape(actual_batch_size*args.sequence)
+                image_number = image_number.reshape(actual_batch_size*args.sequence)
                 predicted_multi_list += predicted_list.tolist()
                 target_multi_list += target_list.tolist()
                 video_number_list += video_number.tolist()
@@ -193,7 +200,6 @@ def val(model, val_loader, epoch, args):
     print(args.test_dataset)
     print("F_measure_k:")
     print(fscore_k)
-
 
 
 def train(model, train_loader, optimizer, criterion, epoch, args):
@@ -260,12 +266,16 @@ def train_net(args):
     print("dataset:")
     print(args.dataset)
     print("Init...")
-    train_loader, val_loader,In_target = build_dataloader(args)
+    logging.basicConfig(level=logging.INFO)
+    print("Building dataloader...")
+    train_loader, val_loader, In_target = build_dataloader(args)
     total_target = len(train_loader)*args.batch_size*args.sequence
     A = total_target/(total_target-In_target)
     B = total_target/In_target
+    print("Building model...")
     model = build_model(args)
     print('Parameters:', sum([np.prod(p.size()) for p in model.parameters()]))
+    print("Building optimizer...")
     optimizer = build_optimizer(args, model)
 
     epoch = 0
@@ -278,12 +288,8 @@ def train_net(args):
 
     if args.cuda:
         model.cuda()
-
-
-    device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+    device = f'cuda:{args.rank}' if torch.cuda.is_available() else 'cpu'
     criterion = nn.CrossEntropyLoss(weight=torch.FloatTensor([A, B])).to(device)
-
-
     print("Start training...")
 
 
@@ -298,6 +304,7 @@ def train_net(args):
         pd_epoch.append(epoch)
         pd_batch_size .append(args.batch_size)
         Stime = time.time()
+        train_loader.sampler.set_epoch(epoch)
         train(
             model, train_loader, optimizer, criterion, epoch, args
         )
@@ -308,13 +315,14 @@ def train_net(args):
         runtime = str(datetime.timedelta(seconds=int(Etime - Stime)))
         pd_runtime.append(runtime)
 
-        ddict = {'epoch': pd_epoch,
-                 'Batch_size':pd_batch_size,
-                 'lr':pd_lr,
-                 'runtime':pd_runtime,
-                 'loss':pd_loss,
-                 'F_measure_k':pd_F_measure_k,
-                 }
+        ddict = {
+            'epoch': pd_epoch,
+            'Batch_size':pd_batch_size,
+            'lr':pd_lr,
+            'runtime':pd_runtime,
+            'loss':pd_loss,
+            'F_measure_k':pd_F_measure_k,
+            }
 
         dataframe = pd.DataFrame(ddict)
         csv_path = "./STVT/work_dirs/Record/csv/"+args.dataset+"/Record_" + str(args.roundtimes) + ".csv"
@@ -322,6 +330,22 @@ def train_net(args):
 
         epoch += 1
 
+def train_net_wrapper(rank, args):
+    print(f"Process with rank {rank} initialized (out of {args.world_size} processes)")
+    setup(rank, args.world_size)
+    args.rank = rank
+    train_net(args)
+    cleanup()
+
 if __name__ == "__main__":
     args = parse_args()
-    train_net(args)
+    world_size = torch.cuda.device_count()
+    print(f"Detected {world_size} CUDA devices")
+    print(f"Launching {args.world_size} processes...")
+    mp.spawn(
+        train_net_wrapper, 
+        args=(args,), 
+        nprocs=args.world_size,
+        join=True
+    )
+    print("Finished")
