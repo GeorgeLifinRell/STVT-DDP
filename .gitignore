@@ -7,3 +7,7 @@ __pycache__
 *.pyc
 
 STVT/STVT/datasets/datasets/*
+
+STVT/model
+
+STVT/STVT/work_dirs

@@ -5,6 +5,8 @@ import torch.distributed as dist
 import math
 import shutil
 
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 def adjust_learning_rate(args, optimizer, epoch, batch_idx, data_nums, type):
     if epoch < args.warmup_epochs:
         epoch += float(batch_idx + 1) / data_nums
@@ -54,12 +56,24 @@ def cross_entropy_with_label_smoothing(pred, target, eta=0.1):
     return cross_entropy_for_onehot(pred, onehot_target)
 
 def save_model(model, args, best_fscore_k, epoch):
-    if os.path.exists("./STVT/model/"+args.dataset+"/model_" + str(args.roundtimes) + "_roundtimes"):
-        shutil.rmtree("./STVT/model/"+args.dataset+"/model_" + str(args.roundtimes) + "_roundtimes")
-    if not os.path.exists("./STVT/model/"+args.dataset+"/model_" + str(args.roundtimes)+"_roundtimes"):
-        os.mkdir("./STVT/model/"+args.dataset+"/model_" + str(args.roundtimes)+"_roundtimes")
-    path = "./STVT/model/"+args.dataset+"/model_"+str(args.roundtimes)+"_roundtimes/"+str(args.dataset)+"_"+str(epoch)+"_"+str(best_fscore_k)+".pth"
+    # Use project_root instead of relative paths
+    model_base_dir = os.path.join(project_root, "model", args.dataset)
+    model_dir = os.path.join(model_base_dir, f"model_{args.roundtimes}_roundtimes")
+    
+    # Create base model directory if it doesn't exist
+    os.makedirs(model_base_dir, exist_ok=True)
+    
+    # Remove directory if it exists (keeping your original behavior)
+    if os.path.exists(model_dir):
+        shutil.rmtree(model_dir)
+        
+    # Create the directory
+    os.makedirs(model_dir, exist_ok=True)
+    
+    # Save the model
+    path = os.path.join(model_dir, f"{args.dataset}_{epoch}_{best_fscore_k}.pth")
     torch.save(model.state_dict(), path)
+
 def dist_save_model(model, optimizer, epoch, ngpus_per_node, args):
     if not args.multiprocessing_distributed or (
         args.multiprocessing_distributed and args.rank % ngpus_per_node == 0
@@ -79,7 +93,6 @@ def dist_save_model(model, optimizer, epoch, ngpus_per_node, args):
                 {'net': model.state_dict(), 'epoch': epoch},
                 os.path.join(args.work_dirs, '{}.pth'.format(epoch)),
             )
-
 
 def load_model(network, args):
     if not os.path.exists(args.work_dirs):
@@ -201,3 +214,6 @@ def format_step(step):
     if len(step) > 2:
         s += "Validation Iteration: {} ".format(step[2])
     return s
+
+if __name__ == '__main__':
+    print(project_root)

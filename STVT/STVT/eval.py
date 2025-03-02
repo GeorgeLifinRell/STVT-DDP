@@ -87,9 +87,24 @@ def select_keyshots(predicted_list, video_number_list,image_name_list,target_lis
     return eval_arr
 
 def upsample(down_arr, up_rate, vidlen):
+    """Safely upsamples array with robust error handling"""
+    if down_arr is None:
+        print("ERROR: down_arr is None in upsample function")
+        # Return zeros array as fallback
+        return np.zeros(vidlen)
+        
+    if not isinstance(down_arr, np.ndarray):
+        print(f"WARNING: Converting {type(down_arr)} to numpy array")
+        down_arr = np.array(down_arr)
+        
     up_arr = np.zeros(vidlen)
-    for i in range(len(down_arr)):
-        for j in range(up_rate):
-            up_arr[i * up_rate + j] = down_arr[i]
-
+    try:
+        for i in range(len(down_arr)):
+            for j in range(up_rate):
+                if i * up_rate + j < vidlen:
+                    up_arr[i * up_rate + j] = down_arr[i]
+    except Exception as e:
+        print(f"ERROR in upsample: {e}")
+        return np.zeros(vidlen)
+        
     return up_arr

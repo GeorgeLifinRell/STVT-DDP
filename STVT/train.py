@@ -1,6 +1,7 @@
 import argparse
 import os
 import logging
+import torch.distributed
 from tqdm import tqdm
 import time
 import datetime
@@ -187,6 +188,17 @@ def val(model, val_loader, epoch, args):
 
             predicted_multi_list = [float(i) for i in predicted_multi_list]
             target_multi_list = [int(i) for i in target_multi_list]
+
+            # Add this before calling select_keyshots
+            print(f"Rank {args.rank}: pred_list len={len(predicted_multi_list)}, video_list len={len(video_number_list)}")
+            print(f"Rank {args.rank}: Sample values: {predicted_multi_list[:5] if predicted_multi_list else 'empty'}")
+
+            # Ensure data is valid before passing to select_keyshots
+            if not predicted_multi_list or None in predicted_multi_list:
+                print(f"WARNING: Invalid prediction data on rank {args.rank}")
+                # Return safe default
+                return
+
             eval_res = select_keyshots(predicted_multi_list, video_number_list, image_number_list, target_multi_list, args)
             fscore_k = 0
             for i in eval_res:
@@ -203,7 +215,7 @@ def val(model, val_loader, epoch, args):
 
 
 def train(model, train_loader, optimizer, criterion, epoch, args):
-
+    print("Training...")
     global pd_lr
     global pd_loss
 
@@ -309,7 +321,15 @@ def train_net(args):
             model, train_loader, optimizer, criterion, epoch, args
         )
         if (epoch + 1) % args.test_epochs == 0:
-            val(model, val_loader, epoch, args)
+            # ensure that all processes have finished
+            torch.distributed.barrier()
+            # Only process rank 0 handles evaluation to avoid conflicts
+            if args.rank == 0:
+                val(model, val_loader, epoch, args)
+            else:
+                # Skip validation on other ranks
+                print(f"Rank {args.rank} skipping validation")
+            torch.distributed.barrier()  # Wait for rank 0 to finish
 
         Etime = time.time()
         runtime = str(datetime.timedelta(seconds=int(Etime - Stime)))
@@ -325,7 +345,7 @@ def train_net(args):
             }
 
         dataframe = pd.DataFrame(ddict)
-        csv_path = "./STVT/work_dirs/Record/csv/"+args.dataset+"/Record_" + str(args.roundtimes) + ".csv"
+        csv_path = "/home/user0123/STVT/STVT/STVT/work_dirs/Record/csv/"+args.dataset+"/Record_" + str(args.roundtimes) + ".csv"
         dataframe.to_csv(csv_path, index=False, sep=',')
 
         epoch += 1
