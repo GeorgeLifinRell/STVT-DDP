@@ -1,29 +1,11 @@
-# import os
-# import torch
-# import torch.distributed as dist
-
-# def setup(rank: int, world_size: int):
-#     os.environ["MASTER_ADDR"] = "localhost"
-#     os.environ["MASTER_PORT"] = "12355"
-#     torch.cuda.set_device(rank)
-#     dist.init_process_group(backend="nccl", rank=rank, world_size=world_size)
-
-# def cleanup():
-#     dist.destroy_process_group()
-
-# if __name__ == "__main__":
-#     setup(0, 1)
-#     print("Hello World")
-#     cleanup()
-
 import os
 import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 
-def setup(rank: int, world_size: int):
-    os.environ["MASTER_ADDR"] = "localhost"
-    os.environ["MASTER_PORT"] = "12355"
+def setup(rank: int, world_size: int, args=None):
+    os.environ["MASTER_ADDR"] = args.master_addr
+    os.environ["MASTER_PORT"] = args.master_port
     torch.cuda.set_device(rank)
     dist.init_process_group(backend="nccl", rank=rank, world_size=world_size)
     print(f"Process with rank {rank} initialized (out of {world_size} processes)")

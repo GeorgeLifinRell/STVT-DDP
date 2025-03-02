@@ -130,6 +130,12 @@ def parse_args():
     parser.add_argument(
         '--world_size', default=1, type=int, help='number of distributed processes'
     )
+    parser.add_argument(
+        '--master_port', default="12345", type=str, help='port for master'
+    )
+    parser.add_argument(
+        '--master_addr', default="localhost", type=str, help='address for master'
+    )
 
     args = parser.parse_args()
 
@@ -215,7 +221,6 @@ def val(model, val_loader, epoch, args):
 
 
 def train(model, train_loader, optimizer, criterion, epoch, args):
-    print("Training...")
     global pd_lr
     global pd_loss
 
@@ -320,39 +325,39 @@ def train_net(args):
         train(
             model, train_loader, optimizer, criterion, epoch, args
         )
-        if (epoch + 1) % args.test_epochs == 0:
-            # ensure that all processes have finished
-            torch.distributed.barrier()
-            # Only process rank 0 handles evaluation to avoid conflicts
-            if args.rank == 0:
-                val(model, val_loader, epoch, args)
-            else:
-                # Skip validation on other ranks
-                print(f"Rank {args.rank} skipping validation")
-            torch.distributed.barrier()  # Wait for rank 0 to finish
+        print("Epoch: ", epoch)
+        # if (epoch + 1) % args.test_epochs == 0:
+        #     # ensure that all processes have finished
+        #     torch.distributed.barrier()
+        #     # Only process rank 0 handles evaluation to avoid conflicts
+        #     if args.rank == 0:
+        #         val(model, val_loader, epoch, args)
+        #     else:
+        #         # Skip validation on other ranks
+        #         print(f"Rank {args.rank} skipping validation")
+        #     torch.distributed.barrier()  # Wait for rank 0 to finish
 
-        Etime = time.time()
-        runtime = str(datetime.timedelta(seconds=int(Etime - Stime)))
-        pd_runtime.append(runtime)
+        # Etime = time.time()
+        # runtime = str(datetime.timedelta(seconds=int(Etime - Stime)))
+        # pd_runtime.append(runtime)
 
-        ddict = {
-            'epoch': pd_epoch,
-            'Batch_size':pd_batch_size,
-            'lr':pd_lr,
-            'runtime':pd_runtime,
-            'loss':pd_loss,
-            'F_measure_k':pd_F_measure_k,
-            }
+        # ddict = {
+        #     'epoch': pd_epoch,
+        #     'Batch_size':pd_batch_size,
+        #     'lr':pd_lr,
+        #     'runtime':pd_runtime,
+        #     'loss':pd_loss,
+        #     'F_measure_k':pd_F_measure_k,
+        #     }
 
-        dataframe = pd.DataFrame(ddict)
-        csv_path = "/home/user0123/STVT/STVT/STVT/work_dirs/Record/csv/"+args.dataset+"/Record_" + str(args.roundtimes) + ".csv"
-        dataframe.to_csv(csv_path, index=False, sep=',')
-
+        # dataframe = pd.DataFrame(ddict)
+        # csv_path = "/home/user0123/STVT/STVT/STVT/work_dirs/Record/csv/"+args.dataset+"/Record_" + str(args.roundtimes) + ".csv"
+        # dataframe.to_csv(csv_path, index=False, sep=',')
         epoch += 1
 
 def train_net_wrapper(rank, args):
     print(f"Process with rank {rank} initialized (out of {args.world_size} processes)")
-    setup(rank, args.world_size)
+    setup(rank, args.world_size, args=args)
     args.rank = rank
     train_net(args)
     cleanup()
