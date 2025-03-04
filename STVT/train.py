@@ -13,7 +13,7 @@ import tensorboardX
 import numpy as np
 from STVT.metrics import Metric
 from STVT.build_dataloader import build_dataloader
-from STVT.build_model import build_model
+from STVT.build_model import build_ddp_model
 from STVT.build_optimizer import build_optimizer
 from STVT.eval import select_keyshots
 import pandas as pd
@@ -79,7 +79,6 @@ def parse_args():
         '--epochs',
         type=int,
         default = 100,
-        #default=130,
         help='number of epochs to train'
     )
     parser.add_argument(
@@ -136,94 +135,94 @@ def parse_args():
     parser.add_argument(
         '--master_addr', default="localhost", type=str, help='address for master'
     )
+    parser.add_argument(
+        '--rank', default=0, type=int, help='current process rank'
+    )
+    parser.add_argument(
+        '--input_video_path',
+        type=str,
+        default="/home/user0123/STVT/downloads/test.mp4",
+        help='The path of input video.',
+    )
+    parser.add_argument(
+        '--output_summary_path',
+        type=str,
+        default="/home/user0123/STVT/downloads/summary.mp4",
+        help='The path of output video.',
+    )
 
     args = parser.parse_args()
-
     os.environ['CUDA_VISIBLE_DEVICES'] = "0,1,2"
-
     return args
 
 def val(model, val_loader, epoch, args):
-    
     model.eval()
     if epoch == -1:
         epoch = args.epochs - 1
 
-    global pd_F_measure_k
+    predicted_multi_list = []
+    target_multi_list = []
+    video_number_list = []
+    image_number_list = []
 
-    with tqdm(
-        total=len(val_loader), desc='Validate Epoch #{}'.format(epoch + 1)
-    ) as t:
+    with tqdm(total=len(val_loader), desc='Validate Epoch #{}'.format(epoch + 1)) as t:
         with torch.no_grad():
-            predicted_multi_list = []
-            target_multi_list = []
-            video_number_list = []
-            image_number_list = []
             for data, target, video_number, image_number in val_loader:
-                predicted_list = []
-                target_list = []
                 if args.cuda:
                     data = data.cuda()
+                    target = target.cuda()
+                    video_number = video_number.cuda()
+                    image_number = image_number.cuda()
+
                 output = model(data)
                 multi_target = target.permute(1, 0)
-                video_number = video_number
-                image_number = image_number
                 multi_output = output
+
+                predicted_list = []
+                target_list = []
                 for sequence in range(args.sequence):
-                    target = multi_target[sequence].cuda()
-                    output = multi_output[sequence]
+                    target_seq = multi_target[sequence]
+                    output_seq = multi_output[sequence]
                     predicted_ver2 = []
                     sigmoid = nn.Sigmoid()
-                    outputs_sigmoid = sigmoid(output)
+                    outputs_sigmoid = sigmoid(output_seq)
                     for s in outputs_sigmoid:
                         predicted_ver2.append(float(s[1]))
                     predicted_list.append(predicted_ver2)
-                    target_list.append(target.tolist())
+                    target_list.append(target_seq.tolist())
+
                 t.update(1)
-                predicted_list = torch.Tensor(predicted_list).permute(1,0)
+
                 actual_batch_size = data.size(0)
-                predicted_list = torch.Tensor(predicted_list).reshape(actual_batch_size*args.sequence)
-                target_list = torch.Tensor(target_list).permute(1, 0)
-                target_list = torch.Tensor(target_list).reshape(actual_batch_size*args.sequence)
-                video_number = video_number.reshape(actual_batch_size*args.sequence)
-                image_number = image_number.reshape(actual_batch_size*args.sequence)
+                predicted_list = torch.Tensor(predicted_list).permute(1, 0).reshape(actual_batch_size * args.sequence)
+                target_list = torch.Tensor(target_list).permute(1, 0).reshape(actual_batch_size * args.sequence)
+                video_number = video_number.reshape(actual_batch_size * args.sequence)
+                image_number = image_number.reshape(actual_batch_size * args.sequence)
+
                 predicted_multi_list += predicted_list.tolist()
                 target_multi_list += target_list.tolist()
                 video_number_list += video_number.tolist()
                 image_number_list += image_number.tolist()
 
-            predicted_multi_list = [float(i) for i in predicted_multi_list]
-            target_multi_list = [int(i) for i in target_multi_list]
+    predicted_multi_list = [float(i) for i in predicted_multi_list]
+    target_multi_list = [int(i) for i in target_multi_list]
 
-            # Add this before calling select_keyshots
-            print(f"Rank {args.rank}: pred_list len={len(predicted_multi_list)}, video_list len={len(video_number_list)}")
-            print(f"Rank {args.rank}: Sample values: {predicted_multi_list[:5] if predicted_multi_list else 'empty'}")
-
-            # Ensure data is valid before passing to select_keyshots
-            if not predicted_multi_list or None in predicted_multi_list:
-                print(f"WARNING: Invalid prediction data on rank {args.rank}")
-                # Return safe default
-                return
-
-            eval_res = select_keyshots(predicted_multi_list, video_number_list, image_number_list, target_multi_list, args)
-            fscore_k = 0
-            for i in eval_res:
-                fscore_k+=i[2]
-            fscore_k/= len(list(args.test_dataset.split(",")))
-            pd_F_measure_k.append(fscore_k)
-
+    eval_res = select_keyshots(predicted_multi_list, video_number_list, image_number_list, target_multi_list, args)
+    if not eval_res:
+        print("Warning: No evaluation results returned by select_keyshots.")
+        fscore_k = 0.0
+    else:
+        fscore_k = sum(i[2] for i in eval_res) / len(eval_res)
 
     save_model(model, args, fscore_k, epoch)
-    print("test video number:")
-    print(args.test_dataset)
-    print("F_measure_k:")
-    print(fscore_k)
+    print("Test video number:", args.test_dataset)
+    print("F_measure_k:", fscore_k)
 
+    return fscore_k
 
 def train(model, train_loader, optimizer, criterion, epoch, args):
     global pd_lr
     global pd_loss
-
     train_loss = Metric('train_loss')
     model.train()
     N = len(train_loader)
@@ -290,7 +289,7 @@ def train_net(args):
     A = total_target/(total_target-In_target)
     B = total_target/In_target
     print("Building model...")
-    model = build_model(args)
+    model = build_ddp_model(args)
     print('Parameters:', sum([np.prod(p.size()) for p in model.parameters()]))
     print("Building optimizer...")
     optimizer = build_optimizer(args, model)
@@ -331,7 +330,9 @@ def train_net(args):
         #     torch.distributed.barrier()
         #     # Only process rank 0 handles evaluation to avoid conflicts
         #     if args.rank == 0:
+        #         torch.distributed.barrier()
         #         val(model, val_loader, epoch, args)
+        #         torch.distributed.barrier()
         #     else:
         #         # Skip validation on other ranks
         #         print(f"Rank {args.rank} skipping validation")
@@ -354,6 +355,7 @@ def train_net(args):
         # csv_path = "/home/user0123/STVT/STVT/STVT/work_dirs/Record/csv/"+args.dataset+"/Record_" + str(args.roundtimes) + ".csv"
         # dataframe.to_csv(csv_path, index=False, sep=',')
         epoch += 1
+    torch.save(model.state_dict(), "/home/user0123/STVT/STVT/STVT/model/"+args.dataset+"/Record_" + str(args.roundtimes) + ".pth")
 
 def train_net_wrapper(rank, args):
     print(f"Process with rank {rank} initialized (out of {args.world_size} processes)")

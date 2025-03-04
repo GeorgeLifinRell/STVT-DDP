@@ -14,8 +14,8 @@ def eval_metrics(y_pred, y_true):
 
     return [precision, recall, fscore]
 
-def select_keyshots(predicted_list, video_number_list,image_name_list,target_list,args):
-    data_path = '/home/user0123/STVT/STVT/STVT/datasets/datasets/'+str(args.dataset)+".h5"
+def select_keyshots(predicted_list, video_number_list, image_name_list, target_list, args):
+    data_path = './STVT/datasets/datasets/'+str(args.dataset)+".h5"
     data_file = h5py.File(data_path)
 
     predicted_single_video = []
@@ -55,21 +55,13 @@ def select_keyshots(predicted_list, video_number_list,image_name_list,target_lis
         vidlen = int(cps[-1][1]) + 1
         weight = video['n_frame_per_seg'][:]
         fea_sequencelen = (len(video['feature'][:])//args.sequence)*args.sequence
-        pred_score = None
-        up_rate = 1
-        
-        # Make sure we're using i (current video index) and check if it's in range
-        if i < len(predicted_single_video_list):
+        for ckeck_n in range(len(video_single_list_sort)):
             dif = True_all_video_len-len(predicted_list)
-            if len(predicted_single_video_list[i]) == fea_sequencelen or len(predicted_single_video_list[i]) == fea_sequencelen-dif:
-                pred_score = np.array(predicted_single_video_list[i])
+            if len(predicted_single_video_list[ckeck_n]) == fea_sequencelen or len(predicted_single_video_list[ckeck_n]) == fea_sequencelen-dif:
+                pred_score = np.array(predicted_single_video_list[ckeck_n])
                 up_rate = vidlen//len(pred_score)
                 # print(up_rate)
-        else:
-            # Handle the case where we don't have predictions for this video
-            print(f"Warning: No predictions found for video index {i}")
-            continue
-
+                break
         #pred
         pred_score = upsample(pred_score, up_rate, vidlen)
         pred_value = np.array([pred_score[cp[0]:cp[1]].mean() for cp in cps])
@@ -87,24 +79,9 @@ def select_keyshots(predicted_list, video_number_list,image_name_list,target_lis
     return eval_arr
 
 def upsample(down_arr, up_rate, vidlen):
-    """Safely upsamples array with robust error handling"""
-    if down_arr is None:
-        print("ERROR: down_arr is None in upsample function")
-        # Return zeros array as fallback
-        return np.zeros(vidlen)
-        
-    if not isinstance(down_arr, np.ndarray):
-        print(f"WARNING: Converting {type(down_arr)} to numpy array")
-        down_arr = np.array(down_arr)
-        
     up_arr = np.zeros(vidlen)
-    try:
-        for i in range(len(down_arr)):
-            for j in range(up_rate):
-                if i * up_rate + j < vidlen:
-                    up_arr[i * up_rate + j] = down_arr[i]
-    except Exception as e:
-        print(f"ERROR in upsample: {e}")
-        return np.zeros(vidlen)
-        
+    for i in range(len(down_arr)):
+        for j in range(up_rate):
+            up_arr[i * up_rate + j] = down_arr[i]
+
     return up_arr

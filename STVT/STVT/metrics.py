@@ -23,7 +23,6 @@ class Metric(object):
 
     def reset(self):
         self.loss = 0
-        #self.avg = 0
         self.sum = 0
         self.count = 0
 
@@ -31,11 +30,8 @@ class Metric(object):
         self.loss = loss
         self.sum += loss * 1
         self.count += 1
-        #self.avg = self.sum / self.count
 
     @property
     def avg(self):
-        # print("self.count: "+str(self.count))
-        #print("self.sum: " + str(self.sum))
         return self.sum / self.count
 

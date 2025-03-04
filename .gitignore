@@ -1,4 +1,6 @@
 .venv
+*.mp4
+downloads
 
 STVT/STVT/STVT/__pycache__
 STVT/STVT/__pycache__
