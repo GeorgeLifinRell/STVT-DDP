@@ -145,11 +145,22 @@ def parse_args():
         help='The path of input video.',
     )
     parser.add_argument(
-        '--output_summary_path',
+        '--output_video_path',
         type=str,
         default="/home/user0123/STVT/downloads/summary.mp4",
         help='The path of output video.',
     )
+    parser.add_argument('--model_path', type=str, default='/home/user0123/STVT/STVT/STVT/model/SumMe/Record_1.pth', 
+                      help='Path to model weights')
+    parser.add_argument('--temp_dir', type=str, default='/tmp/video_summarization', 
+                      help='Directory for temporary files')
+    parser.add_argument('--port', type=int, default=29500, help='Port for distributed processing')
+    parser.add_argument('--num_gpus', type=int, default=torch.cuda.device_count(), 
+                      help='Number of GPUs to use')
+    parser.add_argument('--shot_threshold', type=float, default=0.3, 
+                      help='Threshold for shot segmentation')
+    parser.add_argument('--summary_ratio', type=float, default=0.15, 
+                      help='Target summary length as ratio of original')
 
     args = parser.parse_args()
     os.environ['CUDA_VISIBLE_DEVICES'] = "0,1,2"
